@@ -1,0 +1,156 @@
+---
+title: "Oregon Fire Visualizations"
+author: "Elena Irish"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(lubridate)
+library(usmap)
+library(ggthemes)
+opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+The data for these visualizations came from the Oregon Department of Forestry's [Fire Statistics Database](https://apps.odf.oregon.gov/divisions/protection/fire_protection/fires/firesreports.asp)
+
+```{r}
+# read in data
+or_fires_2020 <- read_csv("data/FireList_2020.csv")
+or_fires_1970 <- read_csv("data/FireList_1970.csv")
+
+# make report date columns into dates instead of characters
+or_fires_2020 <- or_fires_2020 %>%  
+  mutate(`Report Date` = parse_date_time(`Report Date`,
+                                         orders = '%-m%-d%Y%H%M'))
+or_fires_1970 <- or_fires_1970 %>% 
+  mutate(`Report Date` = parse_date_time(`Report Date`,
+                                         orders = '%-m%-d%Y%H%M'))
+
+head(or_fires_2020)
+head(or_fires_1970)
+
+```
+
+
+### Map total fires per county in 2020
+```{r, fig.dim = c(10, 5)}
+# get total number of fires for each county
+county_totals <- or_fires_2020 %>% 
+  count(County) %>% 
+  rename(total_fires = n) %>% 
+  filter(!is.na(County),
+         County != "Other St.")
+
+# get FIPS codes for each county and create fips column
+or_fips <- fips("OR", county = county_totals$County)
+county_totals <- county_totals %>% 
+  mutate(fips = or_fips)
+
+# plot Oregon county map
+county_totals %>% 
+  plot_usmap("counties",
+             include = "OR",
+             data = .,
+             values = "total_fires") + 
+  scale_fill_continuous(name = "Fires", 
+                        low = 'ivory1',
+                        high = 'red3') + 
+  theme(plot.title = element_text(hjust=0.5,
+                                  face = "bold",
+                                  size=15),
+        plot.subtitle = element_text(hjust=0.5,
+                                     size=9.5),
+        legend.title.align = .5,
+        legend.position = "right",
+        legend.justification = "center",
+        plot.background = element_rect(color = "black",
+                                       fill=NA,
+                                       size=1)) + 
+  labs(title = "Total Fires by County",
+       subtitle = "for the state of Oregon in 2020",
+       caption = "data from www.oregon.gov/odf/fire/pages/firestats.aspx")
+```
+
+
+### Compare fire causes in 1970 and 2020
+```{r, fig.dim = c(10, 5)}
+# get number of fires for each cause in 2020 and in 1970
+cause_totals_2020 <- or_fires_2020 %>% 
+  count(`General Cause`) %>% 
+  rename(total_fires = n) %>% 
+  mutate(year = 2020)
+
+cause_totals_1970 <- or_fires_1970 %>% 
+  count(`General Cause`) %>% 
+  rename(total_fires = n) %>% 
+  mutate(year = 1970)
+  
+# make row for Under Invest (only present in 2020) with value of 0
+new_row = c("Under Invest", 0, 1970)
+
+# combine totals into one dataframe, add the new 1970 row, and make total_fires numeric
+overall_cause_totals <- cause_totals_1970 %>% 
+  rbind(cause_totals_2020) %>% 
+  rbind(new_row) %>% 
+  mutate(total_fires = as.numeric(total_fires))
+
+# plot fire cause totals for 1970 and 2020
+overall_cause_totals %>% 
+  ggplot(aes(x = reorder(`General Cause`, total_fires),
+             y = total_fires,
+             fill = as.factor(year))) + 
+  geom_col(position = position_dodge()) + 
+  scale_y_continuous(n.breaks = 6,
+                     expand = c(0, 0), 
+                     limits = c(0, 600)) + 
+  scale_fill_manual(name = "",
+                    values = c("violetred4", "sienna1")) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) + 
+  labs(x = "",
+       y = "Number of Fires",
+       title = "Total Fires by Cause",
+       subtitle = "for 1970 and 2020",
+       caption = "data from www.oregon.gov/odf/fire/pages/firestats.aspx") +
+  theme_clean() + 
+  theme(legend.background = element_rect(color = "white"),
+        plot.background = element_rect(color = "black",
+                                       fill=NA,
+                                       size=1))
+```
+
+
+### Compare seasonal distribution of fires in 1970 and 2020
+```{r, fig.dim = c(10, 5)}
+# make new dataframe with both years, as well as a column with day/month from each
+overall_or_fires <- or_fires_2020 %>% 
+  rbind(or_fires_1970) %>% 
+  mutate(day_month = format(`Report Date`, "%B%d")) %>% 
+  mutate(day_month = as.Date(day_month, "%B%d"))
+
+# plot density of fires for 1970 and 2020
+overall_or_fires %>% 
+  ggplot(aes(x = day_month,
+             fill = as.factor(`Fire Year`))) + 
+  geom_density(alpha = 0.8) +
+  scale_x_date(date_breaks = "1 month",
+               date_labels = "%b",
+               expand = c(0, 0),
+               limits = as.Date(c("2021-01-01", "2021-12-31"))) +
+  scale_fill_manual(name = "",
+                    values = c("violetred4", "sienna1")) + 
+  scale_y_continuous(n.breaks = 2,
+                     expand = c(0, 0)) +
+  labs(x = "",
+       y = "Density", 
+       title = "Seasonal Distribution of Oregon Fires",
+       subtitle = "in 1970 and 2020",
+       caption = "data from www.oregon.gov/odf/fire/pages/firestats.aspx") +
+  theme_classic() +
+  theme(plot.title = element_text(face = "bold"),
+        plot.background = element_rect(color = "black",
+                                       fill=NA,
+                                       size=1)) 
+```
+
